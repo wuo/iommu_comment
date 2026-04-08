@@ -234,6 +234,7 @@ iommufd_hwpt_nested_alloc(struct iommufd_ctx *ictx,
 	struct iommufd_hw_pagetable *hwpt;
 	int rc;
 
+	//对于ARM SMMUV3, ops->domain_alloc_nested是没有实现的，不会走到这里
 	if ((flags & ~(IOMMU_HWPT_FAULT_ID_VALID | IOMMU_HWPT_ALLOC_PASID)) ||
 	    !user_data->len || !ops->domain_alloc_nested)
 		return ERR_PTR(-EOPNOTSUPP);
@@ -307,6 +308,7 @@ iommufd_viommu_alloc_hwpt_nested(struct iommufd_viommu *viommu, u32 flags,
 
 	hwpt_nested->viommu = viommu;
 	refcount_inc(&viommu->obj.users);
+	//viommu 中绑定的hwpt是S2页表
 	hwpt_nested->parent = viommu->hwpt;
 
 	hwpt->domain = viommu->ops->alloc_domain_nested(
@@ -331,6 +333,11 @@ out_abort:
 	return ERR_PTR(rc);
 }
 
+//在这个函数中，分配nested hwpt分为两种情况，其中第一种没有viommu的概念，
+//直接使用iommu_ops.domain_alloc_nested()，ARM SMMU驱动是没有实现这个
+//函数的，第二种基于viommmu，使用了viommu->ops->alloc_domain_nested()
+//ARM SMMU是实现了这函数的，抽象出了viommu的概念。说明对于ARM SMMU的架构
+//对于每个VMM，都要分配一个viommu的实例。
 int iommufd_hwpt_alloc(struct iommufd_ucmd *ucmd)
 {
 	struct iommu_hwpt_alloc *cmd = ucmd->cmd;
