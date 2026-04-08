@@ -444,6 +444,10 @@ int arm_vsmmu_init(struct iommufd_viommu *viommu,
 		   struct iommu_domain *parent_domain,
 		   const struct iommu_user_data *user_data)
 {
+
+	//arm_vsmmu 是包含iommufd_viommu的，在iommufd框架中，只分配了iommufd_viommu，
+	//这里之所以能够使用container_of 获取arm_vsmmu，是因为在分配iommufd_viommu时，
+	//调用了ops.get_viommu_size()获取了大小，留下内存余量。
 	struct arm_vsmmu *vsmmu = container_of(viommu, struct arm_vsmmu, core);
 	struct arm_smmu_device *smmu =
 		container_of(viommu->iommu_dev, struct arm_smmu_device, iommu);
