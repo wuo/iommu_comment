@@ -898,12 +898,14 @@ static struct page **__iommu_dma_alloc_pages(struct device *dev,
 		 */
 		for (order_mask &= GENMASK(__fls(count), 0);
 		     order_mask; order_mask &= ~order_size) {
+		    //从支持的最大的oder开始分配，如果分配不成功，则寻求下个支持的order
 			unsigned int order = __fls(order_mask);
 			gfp_t alloc_flags = gfp;
 
 			order_size = 1U << order;
 			if (order_mask > order_size)
 				alloc_flags |= __GFP_NORETRY;
+			//只要order 不为0，此处分配的应该是连续的页，当然，如果为0也是可以的
 			page = alloc_pages_node(nid, alloc_flags, order);
 			if (!page)
 				continue;
@@ -911,7 +913,9 @@ static struct page **__iommu_dma_alloc_pages(struct device *dev,
 				split_page(page, order);
 			break;
 		}
+		//在最外层的count没有到达0之前，只要有一次没有成功分配到页，说明没有成功
 		if (!page) {
+			//调用本地封装的函数释放页数组
 			__iommu_dma_free_pages(pages, i);
 			return NULL;
 		}
@@ -942,18 +946,25 @@ static struct page **__iommu_dma_alloc_noncontiguous(struct device *dev,
 	if (static_branch_unlikely(&iommu_deferred_attach_enabled) &&
 	    iommu_deferred_attach(dev, domain))
 		return NULL;
-
-	min_size = alloc_sizes & -alloc_sizes;
+	//此处是对SMMU的pgsize 和系统的pgsize 的兼容性进行匹配
+	min_size = alloc_sizes & -alloc_sizes; //获取SMMU的最小页大小
 	if (min_size < PAGE_SIZE) {
+		//如果SMMU的最小页小于系统的页，以系统页为标准
 		min_size = PAGE_SIZE;
 		alloc_sizes |= PAGE_SIZE;
 	} else {
+		//大于或者等于时，以SMMU页为标准
 		size = ALIGN(size, min_size);
 	}
+
+    //以最常见的SMMU 页大小和系统页大小都为4K为例，最终得到的alloc_sizes=4K
+	
 	if (attrs & DMA_ATTR_ALLOC_SINGLE_PAGES)
 		alloc_sizes = min_size;
 
 	count = PAGE_ALIGN(size) >> PAGE_SHIFT;
+
+	//此函数是对alloc_pages_node的本地封装
 	pages = __iommu_dma_alloc_pages(dev, count, alloc_sizes >> PAGE_SHIFT,
 					gfp);
 	if (!pages)
@@ -971,6 +982,7 @@ static struct page **__iommu_dma_alloc_noncontiguous(struct device *dev,
 	 */
 	gfp &= ~(__GFP_DMA | __GFP_DMA32 | __GFP_HIGHMEM | __GFP_COMP);
 
+	//从页数组生成sgtable
 	if (sg_alloc_table_from_pages(sgt, pages, count, 0, size, gfp))
 		goto out_free_iova;
 
@@ -1008,11 +1020,14 @@ static void *iommu_dma_alloc_remap(struct device *dev, size_t size,
 	void *vaddr;
 	pgprot_t prot = dma_pgprot(dev, PAGE_KERNEL, attrs);
 
+	//分配离散的页并且做dma映射
 	pages = __iommu_dma_alloc_noncontiguous(dev, size, &sgt, gfp, attrs);
 	if (!pages)
 		return NULL;
 	*dma_handle = sgt.sgl->dma_address;
 	sg_free_table(&sgt);
+
+	//在CPU 侧，直接使用vmap，传入页数组映射到VMALLOC区
 	vaddr = dma_common_pages_remap(pages, size, prot,
 			__builtin_return_address(0));
 	if (!vaddr)
